@@ -1,0 +1,149 @@
+#This is a code that you can use when you are making the analysis on Colab
+#First we need to import the libraries that we are going to use
+from pandas.io.parsers.readers import read_csv
+import pandas as pd
+import numpy as np
+import seaborn as sns
+import matplotlib.pyplot as plt
+
+train = read_csv("https://raw.githubusercontent.com/ferdlh95/Titanic-Disaster/main/train.csv")
+test = read_csv("https://raw.githubusercontent.com/ferdlh95/Titanic-Disaster/main/test.csv")
+
+#convert to Data Frame
+train_df = pd.DataFrame(train)
+test_df = pd.DataFrame(test)
+
+#Make the first Database exploration
+print(train_df.head(2))
+print(test_df.head(2))
+
+#Let's look the Data Types that we have in ours DFs
+print([train_df.dtypes,test_df.dtypes])
+print([train_df.describe(), test_df.describe()])
+
+#Let's look if we have some NA's
+print([train_df.isna().sum(), test_df.isna().sum()])
+
+#Let's work with the NA values
+##We need to identify which is the feature with a bigger correlation with AGE
+train_corr = train_df.corr ()
+train_corr.style.background_gradient (cmap = 'coolwarm')
+test_corr = test_df.corr ()
+test_corr.style.background_gradient (cmap = 'coolwarm')
+
+#We realized that AGE and Pclass has a big correlation lets group by Pclass and obtain the Age median
+test_age_dict = test_df.groupby("Pclass")["Age"].median().to_dict()
+print(test_age_dict)
+test_df["Age"] = test_df["Age"].fillna(test_df["Pclass"].map(test_age_dict))
+train_age_dict = train_df.groupby("Pclass")["Age"].median().to_dict()
+print(train_age_dict)
+train_df["Age"] = train_df["Age"].fillna(train_df["Pclass"].map(train_age_dict))
+
+#Let's look again ur NA's
+print([train_df.isna().sum(), test_df.isna().sum()])
+
+#Let's work with the other NA's values
+##In this case the best option is to drop the Cabin column and and replace the Embarked missing values with the mode and fare missing value with the median
+E = train_df["Embarked"].mode()[0]
+train_df["Embarked"].fillna(E, inplace=True)
+test_df['Fare'].fillna(test_df['Fare'].dropna().median(), inplace=True)
+train_df = train_df.drop('Cabin', axis=1)
+test_df = test_df.drop('Cabin', axis=1)
+print([train_df.isna().sum(), test_df.isna().sum()])
+
+#I don't think that the name and ticket will not be relevant to the model so I will drop the column
+train_df = train_df.drop(['Name','Ticket'], axis=1)
+test_df = test_df.drop(['Name','Ticket'], axis=1)
+print([train_df.isna().sum(), test_df.isna().sum()])
+
+#Let's change the Sex column and Embarked column per int
+train_df['Sex'] = train_df['Sex'].map( {'female': 1, 'male': 0} ).astype(int)
+test_df['Sex'] = test_df['Sex'].map( {'female': 1, 'male': 0} ).astype(int)
+train_df['Embarked'] = train_df['Embarked'].map( {'C': 1, 'S': 2,  'Q': 3} ).astype(int)
+test_df['Embarked'] = test_df['Embarked'].map( {'C': 1, 'S': 2, 'Q': 3} ).astype(int)
+print(train_df.head(20))
+
+#DATA VISUALIZATION
+
+ #Let's make some visualization
+##Who has survived man or woman?
+fig, ax = plt.subplots()
+sns.countplot(data=train_df, y="Sex", hue="Survived", ax=ax, palette="coolwarm")
+ax.set(xlabel= "Number of survivers",
+       ylabel="Sex",
+       title= "Man vs Woman Survivers")
+plt.show()
+
+#As we see in the heatmap the Pclass has a big correlation with the people who survived, let's check it
+fig, ax = plt.subplots()
+sns.countplot(data=train_df, y="Pclass", hue="Survived", ax=ax, palette="coolwarm")
+ax.set(xlabel= "Number of survivers",
+       ylabel="Pclass",
+       title= "Pclass Survivers")
+plt.show()
+
+#Lets check the destribution between Age of the people who survived in each class
+grid = sns.FacetGrid(train_df, col='Survived', row='Pclass')
+grid.map(plt.hist, 'Age', alpha=.5, bins=20)
+grid.add_legend()
+
+#Lets check the destribution between Age of the people who survived in each Embarked
+grid = sns.FacetGrid(train_df, col='Survived', row='Embarked')
+grid.map(plt.hist, 'Age', alpha=.5, bins=20)
+grid.add_legend()
+
+#MODEL
+
+#Import functions to compute accuracy
+from sklearn.metrics import accuracy_score
+
+#Import models, model selection
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.linear_model import LogisticRegression
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.model_selection import cross_val_score, KFold, train_test_split
+from sklearn.preprocessing import StandardScaler
+
+# Set seed for reproducibility
+SEED = 42
+
+#We are goign to split the Data and then we are going to generate the models
+X = train_df.drop(['Survived'], axis=1)
+y = train_df["Survived"]
+print([X.shape, y.shape])
+
+#Lest's split the data
+X_train, X_test, y_train, y_test = train_test_split(X, y, random_state=SEED)
+scaler = StandardScaler()
+X_train_scaled = scaler.fit_transform(X_train)
+X_test_scaled = scaler.fit_transform(X_test)
+
+#Let's make the models
+models = {"Logistic Regression": LogisticRegression(), "KNN": KNeighborsClassifier(), "Decision Tree": DecisionTreeClassifier()}
+results = []
+for model in models.values():
+  kf = KFold(n_splits=6, random_state= SEED, shuffle=True)
+  cv_results = cross_val_score(model, X_train_scaled, y_train, cv=kf)
+  results.append(cv_results)
+
+plt.boxplot(results, labels=models.keys())
+plt.show()
+
+#Test the performance of the models.
+for name, model in models.items():
+  model.fit(X_train_scaled, y_train)
+  test_score = model.score(X_test_scaled, y_test)
+  print("{} Test Set Accuracy: {}".format(name, test_score))
+
+#We see that the best model is the Logistic regression so we are going to predict with this model
+for name, model in models.items():
+  model.fit(X_train_scaled, y_train)
+  y_pred = model.predict(test_df)
+print(y_pred)
+
+submission = pd.DataFrame({
+        "PassengerId": test_df["PassengerId"],
+        "Survived": y_pred
+    })
+
+print(submission)
